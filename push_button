@@ -1,0 +1,98 @@
+;portd 0 as pb0 portd 1 as pb1
+;portc as led display
+;r17 as speed register
+;r18 as temp register, use in wait
+;func : sleep 1ms
+;macro : wait 256ms
+
+.include "m2560def.inc"
+.def speed = r17
+.def tmp = r18
+
+
+; input push button
+cbi ddrd,0								;pb0
+cbi ddrd,1								;pb1
+
+
+
+; use for delay func
+.def iH = r25
+.def iL = r24
+.equ F_CPU = 16000000
+.equ DELAY_1MS = F_CPU / 4 / 1000 - 4
+
+
+.macro wait
+	ser tmp
+wait_loop:
+	dec tmp
+	tst tmp
+	breq wait_end
+	rcall sleep_1ms
+	rjmp wait_loop
+wait_end:
+	nop
+.endmacro
+
+.macro display
+	; output led
+	ser tmp
+	out ddrc, tmp ;
+	out portc, @0
+	wait
+end_display:
+	nop	
+.endmacro 
+
+
+init:
+	ldi speed, 1							; set init speed as 1
+	out portC, speed
+	;wait
+
+speed_set:
+	sbis pind, 0							; if pb0 pressed run inc speed
+	rjmp speed_inc
+
+	sbis pind, 1							; if pb1 pressed run desc speed
+	rjmp speed_dec
+
+	rjmp speed_set
+
+
+speed_inc:
+	cpi speed, 10					
+	breq speed_set							;if == 8m/s go to speed set
+	inc speed
+
+	display speed							; debug speed
+
+	wait
+	rjmp speed_set
+
+speed_dec:
+	cpi speed, 1							;if == 1m/s go to speed set
+	breq speed_set
+	dec speed
+
+	display	speed							; debug speed
+
+	wait
+	rjmp speed_set
+
+
+; start func of sleep 1ms
+sleep_1ms:
+    push iL
+    push iH
+    ldi iH, high(DELAY_1MS)
+    ldi iL, low(DELAY_1MS)
+
+delayloop_1ms:
+    sbiw iH:iL, 1
+    brne delayloop_1ms
+
+    pop iH
+    pop iL
+    ret
