@@ -2,11 +2,17 @@
 
 ;register design
 ;static
-;r17 stored speed in push button module
+;r16 ???
+;r17 stored speed in push button module @LiLi
+;r18 store temp value
+;r19 ???
+;r20 ???
+;r21 ???
+;r22 ???
+;r23 ???
+;r24 store temp value be used with r25 in func sleep_1ms @LiLi
+;r25 store temp value be used with r24 in func sleep_1ms @LiLi
 
-;temp
-;r18 stored temp value
-;r25 r24 used in func sleep_1ms
 
 
 ; func
