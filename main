@@ -1,2 +1,9 @@
 .include "m2560def.inc"
-;push button part by LiLi
+;push button @LiLi
+;portd 0 as pb0 portd 1 as pb1
+;portc as led display
+;r17 as speed register
+;r18 as temp register, use in wait
+;func : sleep 1ms
+;macro : wait 256ms
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;
