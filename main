@@ -22,3 +22,18 @@
 ; portc: output led display for debugging
 
 
+; module led @Brian
+; updating
+
+
+; module reset @Deniel
+; updating
+
+; module lcd @Chatwit
+; updating
+
+; module keypad @Yihang
+; updating
+
+
+
