@@ -17,6 +17,7 @@
 
 
 ; module push button @LiLi
+; press pb0 inc speed; press pb1 dec speed; speed be stored in r17
 ; portd 0: pb0 
 ; portd 1: pb1
 ; portc: output led display for debugging
