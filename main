@@ -1,7 +1,6 @@
 .include "m2560def.inc"
 
 ;register design
-;static
 ;r16 ???
 ;r17 stored speed in push button module @LiLi
 ;r18 store temp value
