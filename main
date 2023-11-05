@@ -1,9 +1,25 @@
 .include "m2560def.inc"
+
+;register used
+;static
+;r17 stored speed
+
+;temp
+;r18 stored temp value
+;r25 r24 used in macro wait
+
+
+; func already implemented @ Li Li
+; sleep_1ms: delay 1ms
+
+;macro already implemented @Li Li
+;wait: delay 256ms
+
+
 ;push button @LiLi
 ;portd 0 as pb0 portd 1 as pb1
 ;portc as led display
 ;r17 as speed register
 ;r18 as temp register, use in wait
-;func : sleep 1ms
-;macro : wait 256ms register used temparary: r25 r24 
+;r25 r24 used in macro wait
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
