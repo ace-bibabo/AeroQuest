@@ -5,5 +5,5 @@
 ;r17 as speed register
 ;r18 as temp register, use in wait
 ;func : sleep 1ms
-;macro : wait 256ms
+;macro : wait 256ms register used temparary: r25 r24 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;
