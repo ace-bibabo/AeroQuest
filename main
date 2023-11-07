@@ -1,14 +1,14 @@
 .include "m2560def.inc"
 
 ;register design
-;r16 ???
+;r16 store row in keypad @Yihang
 ;r17 stored speed in push button module @LiLi
 ;r18 store temp value
-;r19 ???
-;r20 ???
-;r21 ???
-;r22 ???
-;r23 ???
+;r19 store column in keypad @Yihang
+;r20 store rmask@Yihang
+;r21 store cmask@Yihang
+;r22 store temp value used in keypad scanning@Yihang
+;r23 store temp value used in keypad scanning@Yihang
 ;r24 store temp value be used with r25 in func sleep_1ms @LiLi
 ;r25 store temp value be used with r24 in func sleep_1ms @LiLi
 
@@ -39,7 +39,14 @@
 ; updating
 
 ; module keypad @Yihang
-; updating
+; RF7-4 connect to C3-0, RF3-0 connect to R3-0.
+; use PortF for input/output from keypad: PF7-4, output, PF3-0, input. 
+; panel set figure
+; north = 2, east = 6, south = 8, west = 4, up = A, down = B, state change = C 
+;	-	N	-	 up			|	1	2	3	A
+;	w	-	E	down		|	4	5	6	B
+;	-	S	-	 SC			|	7	8	9	C
+;	-	-	-	 --			|	*	0	#	D	
 
 
 
