@@ -1,6 +1,8 @@
 .include "m2560def.inc"
 
 ;register design
+;r11 store flight direction @Yihang
+;r12 store flight state @Yihang
 ;r16 store row in keypad @Yihang
 ;r17 stored speed in push button module @LiLi
 
