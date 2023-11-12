@@ -46,7 +46,7 @@ end_display:
 .endmacro 
 
 
-init:
+speed_init:
 	ldi speed, 1							; set init speed as 1
 	out portC, speed
 	;wait

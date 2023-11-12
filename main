@@ -3,11 +3,18 @@
 ;register design
 ;r16 store row in keypad @Yihang
 ;r17 stored speed in push button module @LiLi
-;r18 store temp value
+
+;r18 store temp value use in wait macro @LiLi
+;    store temp value use in flash led  @Brian 
+
+
 ;r19 store column in keypad @Yihang
 ;r20 store rmask@Yihang
 ;r21 store cmask@Yihang
+
 ;r22 store temp value used in keypad scanning@Yihang
+;	 store temp value user in led @Brian
+
 ;r23 store temp value used in keypad scanning@Yihang
 ;r24 store temp value be used with r25 in func sleep_1ms @LiLi
 ;r25 store temp value be used with r24 in func sleep_1ms @LiLi
@@ -18,7 +25,7 @@
 ; sleep_1ms: delay 1ms used r25: r24   @LiLi
 
 ; macro
-;wait: can delay 256ms used r18 @LiLi
+; wait: can delay 256ms used r18 @LiLi
 
 
 ; module push button @LiLi
@@ -29,7 +36,10 @@
 
 
 ; module led @Brian
-; updating
+; .def tmp = r20
+; .def count = r21
+; .def incr = r22
+; .def delay_register = r23
 
 
 ; module reset @Deniel
