@@ -15,10 +15,12 @@
 ;	w	-	E	down		|	4	5	6	B
 ;	-	S	-	 SC			|	7	8	9	C
 ;	-	-	-	 --			|	*	0	#	D	
-.def row    =r16		; current row number
-.def col    =r19		; current column number
-.def rmask  =r20		; mask for current row
-.def cmask	=r21		; mask for current column
+.def flightdirection =r11	; current flight direction
+.def hfstate =r12			; current hover or filght state, hover = 0x00, flight = 0xFF
+.def row    =r16			; current row number
+.def col    =r19			; current column number
+.def rmask  =r20			; mask for current row
+.def cmask	=r21			; mask for current column
 .def temp1	=r22		
 .def temp2  =r23
 
@@ -121,17 +123,31 @@ convert_end:
 	cpi temp1,67
 	breq statechange
 
-; function waiting to be implemented
 north:
-
+	ldi temp2,78							; load ascii value of "N"
+	mov flightdirection,temp2				; set flight direction to north
 west:
-
+	ldi temp2,87							; load ascii value of "W"
+	mov flightdirection,temp2				; set flight direction to west
 east:
-
+	ldi temp2,69							; load ascii value of "E"
+	mov flightdirection,temp2				; set flight direction to east
 south:
-
+	ldi temp2,83							; load ascii value of "S"
+	mov flightdirection,temp2				; set flight direction to south
 up:
-
+	ldi temp2,85							; load ascii value of "U"
+	mov flightdirection,temp2				; set flight direction to up
 down:
-
+	ldi temp2,68							; load ascii value of "D"
+	mov flightdirection,temp2				; set flight direction to down
 statechange:
+	mov temp2,hfstate						; R12 is not a register that can be used with cpi and needs to move to r16-r31 first
+	cpi temp2,0xFF							; determine flight state
+	breq change2hover						; flight = 0xFF, hover = 0x00
+	ser temp2								; set flight state to flight
+	mov hfstate,temp2						;
+change2hover:
+	clr temp2								; set flight state to hover
+	mov hfstate,temp2
+		
