@@ -8,30 +8,12 @@
 .equ INITIAL_SEARCH_SPEED_VALUE = 1
 
 ; Define the starting addresses for the mountain matrix in SRAM
-.equ MOUNTAIN_MATRIX_BASE_ADDR = 0x310 ; Address in SRAM
+; Main program start
 
- ; Main program start
 .org 0x000
 jmp main ; Jump to main program
 
-.org 0x000010
-
-map_data:
-    .db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ; The first row of the map with edges and peaks
-    .db 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
-    .db 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0
-    .db 0, 1, 2, 2, 3, 3, 2, 2, 2, 3, 3, 2, 2, 1, 0
-    .db 0, 1, 2, 2, 3, 9, 2, 2, 2, 3, 3, 2, 2, 1, 0
-    .db 0, 1, 2, 2, 4, 9, 2, 2, 2, 5, 4, 2, 2, 1, 0
-    .db 0, 1, 2, 2, 3, 9, 2, 2, 2, 5, 3, 2, 2, 1, 0 
-    .db 0, 1, 5, 5, 1, 1, 9, 3, 4, 2, 3, 4, 3, 1, 0
-    .db 0, 1, 2, 2, 2, 6, 2, 2, 2, 4, 3, 2, 2, 1, 0
-    .db 0, 1, 2, 2, 3, 3, 2, 2, 2, 4, 3, 2, 2, 1, 0
-    .db 0, 1, 2, 2, 4, 3, 2, 2, 2, 3, 3, 2, 2, 1, 0
-    .db 0, 1, 2, 2, 4, 4, 2, 2, 2, 3, 3, 2, 2, 1, 0
-    .db 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0
-    .db 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0 
-    .db 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0        
+.INCLUDE    "mountain_map.inc"    ; load map from .include file
 
 main:
     ; Configure RESET_BUTTON_BIT as input by clearing the bit in DDRB
@@ -51,10 +33,15 @@ loop:
     rjmp loop ; Jump back to the start of the loop
 
 reset_simulation:
+	CLR         ACCIDENT_X                  ; accident location
+    CLR         ACCIDENT_Y
+    CLR         GLOBAL1                     ; current location
+    CLR         GLOBAL2
+
     ; Set the initial search speed
     ldi r17, INITIAL_SEARCH_SPEED_VALUE ; Load initial search speed value into r17
 
-    ; The size of the map (rows * columns)
+    ; The size of the map
     ldi r18, MATRIX_SIZE
     mul r18, r18 ;r1:r0 now contains MATRIX_SIZE * MATRIX_SIZE
 
@@ -65,26 +52,10 @@ reset_simulation:
     ; Reset multiplication result register (if not used later)
     clr r1
 
-    ldi ZH, high(map_data)
-    ldi ZL, low(map_data)
-
-    ; Set up X pointer with the base address of the SRAM location for the mountain matrix
-    ldi r26, low(MOUNTAIN_MATRIX_BASE_ADDR) 
-    ldi r27, high(MOUNTAIN_MATRIX_BASE_ADDR) 
-
-    ; SRAM write loop
-    load_matrix:
-        lpm r0, Z+ ; Load a byte from program memory into r0 and increment Z
-        st X+, r0  ; Store the byte into SRAM at the address pointed by X and increment X
-
-        ; Decrease the counter (16-bit decrement)
-        sbiw r28, 1 ; Subtract immediate from word (r19:r18)
-        brne load_matrix ; Continue loop if counter is not zero
+    ldi ZH, high(MOUNTAIN_MAP)
+    ldi ZL, low(MOUNTAIN_MAP)
 	
-    end_load_matrix:
-        ; Finished loading matrix
-
-        ret ; Return from subroutine
+   ret ; Return from subroutine
 
 ; End of program
 rjmp main 
