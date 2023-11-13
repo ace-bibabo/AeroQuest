@@ -4,13 +4,16 @@
 
 .def flightDirection = r3   ; register for flight direction
 .def hfState = r4           ; register for flight state
+.def pos_x = r5				; register for x position
+.def pos_y = r6				; register for y position
+.def pos_z = r7				; register for z position
+.def counter_speed = r8		; register for updating speed information
 .def speed = r20            ; permanent register for speed
 .def temp1 = r21            ; working register 1
 .def temp2 = r22            ; working register 2
 .def temp3 = r23            ; working register 3
-.def iH = r25
 .def iL = r24
-
+.def iH = r25
 
 ; //////////////////////////////////////////////////////////
 
@@ -97,18 +100,49 @@ w	-	E	down		|	4	5	6	B
 .equ UP = 85
 .equ DOWN = 68
 
-; Reset and initialise board
-rjmp RESET
+.equ FLIGHT = 'F'
+.equ HOVER = 'H'
+.equ RETURN = 'R'
+.equ CRASH = 'C'
 
+.equ MAPSIZE = 15
+;;;;;;;;;;;;;;;;;interrupt;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+.cseg
+.org 0x00
+jmp RESET
+.org OVF0addr
+	jmp Timer0OVF ; Timer overflow interrupt
+.org OVF2addr
+	jmp Timer0OVF ; Timer overflow interrupt
+
+; Define a 5x5 matrix with all elements initialized to 1
+.org 0x50
+matrix_addr:
+.db 0, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 7, 6, 7, 8
+.db 9, 8, 7, 6, 5, 4, 2, 2, 3, 4, 5, 6, 4, 3, 2
+.db 2, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 5, 6, 7
+.db 8, 7, 6, 5, 4, 3, 2, 3, 4, 5, 6, 7, 5, 4, 3
+.db 3, 4, 5, 6, 7, 8, 7, 8, 5, 4, 3, 2, 4, 5, 6
+.db 7, 8, 5, 4, 3, 2, 3, 4, 5, 6, 7, 8, 5, 6, 7
+.db 2, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 7, 6, 7, 8
+.db 9, 8, 7, 6, 5, 4, 2, 2, 3, 4, 5, 6, 4, 3, 2
+.db 2, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 5, 6, 7
+.db 8, 7, 6, 5, 4, 3, 2, 3, 4, 5, 6, 7, 5, 4, 3
+.db 3, 4, 5, 6, 7, 8, 7, 8, 5, 4, 3, 2, 4, 5, 6
+.db 7, 8, 5, 4, 3, 2, 3, 4, 5, 6, 7, 8, 5, 6, 7
+.db 7, 8, 5, 4, 3, 2, 3, 4, 5, 6, 7, 8, 5, 6, 7
+.db 2, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 7, 6, 7, 8
+.db 9, 8, 7, 6, 5, 4, 2, 2, 3, 4, 5, 6, 4, 3, 2
+
+;;;;;;;;;;;;;;;;;;;macro wait 256ms;;;;;;;;;;;;;;;;;;;;;
 .macro lcd_set
 	sbi PORTA, @0                   ; set pin @0 of port A to 1
 .endmacro
 .macro lcd_clr
 	cbi PORTA, @0                   ; clear pin @0 of port A to 0
 .endmacro
-
 .macro wait
-    push temp1
 	ser temp1
 wait_loop:
 	dec temp1
@@ -117,8 +151,48 @@ wait_loop:
 	rcall sleep_1ms
 	rjmp wait_loop
 wait_end:
-    pop temp1
 	nop
+.endmacro
+.macro display
+	; output led
+	ser temp1
+	out ddrc, temp1 ;
+	out portc, @0
+	wait
+end_display:
+	nop	
+.endmacro
+
+.macro do_lcd_command           ; transfer command to LCD
+    push r16
+	ldi r16, @0                
+	rcall lcd_command           
+	rcall lcd_wait              
+    pop r16
+.endmacro
+
+.macro do_lcd_command_reg           ; transfer command to LCD
+    push r16
+	mov r16, @0                
+	rcall lcd_command           
+	rcall lcd_wait              
+    pop r16
+.endmacro
+ 
+.macro do_lcd_data				; transfer data to LCD
+    push r16
+	ldi r16, @0                 
+	rcall lcd_data              
+	rcall lcd_wait              
+    pop r16
+.endmacro
+ 
+.macro do_lcd_data_reg			; transfer data to LCD
+    push r16
+	mov r16, @0                 
+	rcall lcd_data              
+	rcall lcd_wait              
+    pop r16
 .endmacro
 
 /* 
@@ -136,6 +210,8 @@ flash_loop:
 	rjmp flash_loop
 end_flash_loop:
     pop temp1
+	cbi portg, 0
+	display speed
 .endmacro
 
 /* 
@@ -180,92 +256,330 @@ sleep_5ms:                                    ; sleep 5ms
 	rcall sleep_1ms                           ; 1ms
 	ret
 
-.macro do_lcd_command           ; transfer command to LCD
-	push r16
-	ldi r16, @0                
-	rcall lcd_command           
-	rcall lcd_wait              
-	pop r16
-.endmacro
+load_map:
+	push temp1
+	push temp2
+	push temp3
+	push ZL
+	push ZH
 
-.macro do_lcd_data				; transfer data to LCD
-	push r16
-	ldi r16, @0                 
-	rcall lcd_data              
-	rcall lcd_wait       
-	pop r16
-.endmacro
+	clr temp1
+	clr temp2
+	clr temp3
 
-.macro do_lcd_data_reg			; transfer data to LCD
-	push r16
-	mov r16, @0                 
-	rcall lcd_data              
-	rcall lcd_wait   
-	pop r16     
-.endmacro
+	ldi ZL, low(matrix_addr<<1)
+	ldi ZH, high(matrix_addr<<1)
+	mov temp1, flightDirection
+	
+	cpi temp1, NORTH
+	breq load_column
+	cpi temp1, SOUTH
+	breq load_column
+	cpi temp1, EAST
+	breq load_row
+	cpi temp1, WEST
+	breq load_row
+	rjmp end_load_map
+load_row:
+    ; Calculate the offset for the row (each row is MAPSIZE bytes wide)
+    ldi temp1, MAPSIZE + 1
+    mul pos_y, temp1 ; Multiply row index by row width to get offset
+    ; Add the offset to the Z pointer
+    add ZL, r0
+    adc ZH, r1
+	ldi temp1, MAPSIZE
+    rjmp display_loop
 
+load_column:
+    ; Calculate the offset for the column
+    ; In this case, we add the column index to the base address
+    ; and then add size of map to Z for each iteration to move down the column
+	clr temp2
+	add ZL, pos_x
+	adc ZH, temp2
+    ; Set the loop counter for size of map iterations
+    ldi temp1, MAPSIZE
+    rjmp display_column_loop
+
+display_loop:
+    lpm temp3, Z+ ; Load the value pointed by Z into r19 and increment Z
+	subi temp3, -'0'
+    do_lcd_data_reg temp3
+    dec temp1
+    brne display_loop
+    rjmp end_load_map
+
+display_column_loop:
+    lpm temp3, Z ; Load the value pointed by Z into r19
+	subi temp3, -'0'
+	do_lcd_data_reg temp3
+    adiw Z, MAPSIZE+1 ; Add size of map to Z to move to the next element in the column
+    dec temp1
+    brne display_column_loop
+end_load_map:
+	pop ZH
+	pop ZL
+	pop temp3
+	pop temp2
+	pop temp1
+	ret
+
+display_cursor:
+	push temp2
+	mov temp2, flightDirection
+	cpi temp2, NORTH
+	breq y_cursor
+	cpi temp2, SOUTH
+	breq y_cursor
+	cpi temp2, EAST
+	breq x_cursor
+	cpi temp2, WEST
+	breq x_cursor
+	rjmp exit_cursor
+x_cursor:
+	mov temp2, pos_x  
+	ori temp2, 0x80 
+	do_lcd_command_reg temp2
+	rjmp exit_cursor
+y_cursor:
+	mov temp2, pos_y
+	ori temp2, 0x80 
+	do_lcd_command_reg temp2
+exit_cursor:
+	pop temp2
+	ret
+
+; RESET
 RESET:
-    ; reset all registers
-    clr flightDirection
-    clr hfState
-    clr speed
-    clr temp1
-    clr temp2
-    clr temp3
-	clr row
-	clr col
-    clr iH
-    clr IL
+    ; Initialize Stack Pointer
+    ldi temp1, low(RAMEND)
+    out SPL, temp1
+    ldi temp1, high(RAMEND)
+    out SPH, temp1
 
+	; Set up switch
+	clr temp1
+	out DDRD, temp1
+	ser temp1
+	out PORTD, temp1
+
+	; LCD initalization
+	ser temp1                      ; set r16 to 0xFF
+	out DDRF, temp1                ; set PORT F to input mode
+	out DDRA, temp1                ; set PORT A to input mode
+	clr temp1                      ; clear r16
+	out PORTF, temp1               ; out 0x00 to PORT F
+	out PORTA, temp1               ; out 0x00 to PORT A
+
+	; Set up LCD
+	do_lcd_command 0b00111000 ; 2x5x7
+	rcall sleep_5ms
+	do_lcd_command 0b00111000 ; 2x5x7
+	rcall sleep_1ms
+	do_lcd_command 0b00111000 ; 2x5x7
+	do_lcd_command 0b00111000 ; 2x5x7
+	do_lcd_command 0b00001001 ; display off
+	do_lcd_command 0b00000001 ; clear display
+	do_lcd_command 0b00000110 ; increment, no display shift
+	do_lcd_command 0b00001110 ; Cursor on, bar, no blink
+
+    ; Set up timer overflow interrupt
+
+	ldi temp1, 0b00000000
+	out TCCR0A, temp1
+	ldi temp1, 0b00000011
+	out TCCR0B, temp1				; Prescaling value=64
+	ldi temp1, 1<<TOIE0				; =1024 microseconds
+	sts TIMSK0, temp1				; T/C0 interrupt enable
+
+	ldi temp1, 0b00000000
+	sts TCCR2A, temp1
+	ldi temp1, 0b00000011
+	sts TCCR2B, temp1				; Prescaling value=64
+	ldi temp1, 1<<TOIE2				; =1024 microseconds
+	sts TIMSK2, temp1				; T/C0 interrupt enable
+
+	; Set up keypad 
 	ldi temp1, KEYPAD_PORTDIR				; Port L columns are outputs, rows are inputs  init rows = 0000(inputs) cols = 1111(outputs)
 	sts	DDRL, temp1							; save temp1(00001111) to DDRL so that cols are outputs and rows are inputs
 
-	; LCD initalization
-	ser temp1						; set r16 to 0xFF
-	out DDRF, temp1					; set PORT F to input mode
-	out DDRA, temp1					; set PORT A to input mode
-	clr temp1						; clear r16
-	out PORTF, temp1					; out 0x00 to PORT F
-	out PORTA, temp1					; out 0x00 to PORT A
+	; Initialize variables
+	ldi speed, 0
+	mov pos_x, speed
+	mov pos_y, speed
+	mov pos_z, speed
+	ldi speed, 0
+	ldi temp1, '-'
+	mov hfState, temp1
+	mov flightDirection, temp1
 
-	do_lcd_command 0b00111000		; 2x5x7
-	rcall sleep_5ms
-	do_lcd_command 0b00111000		; 2x5x7
-	rcall sleep_1ms
-	do_lcd_command 0b00111000		; 2x5x7
-	do_lcd_command 0b00111000		; 2x5x7
-	do_lcd_command 0b00001001		; display off
-	do_lcd_command 0b00000001		; clear display
-	do_lcd_command 0b00000110		; increment, no display shift
-	do_lcd_command 0b00001111		; Cursor on, bar, blink
-
-    ; initialise input push button
-    cbi ddrd, 0								;pb0
-    cbi ddrd, 1								;pb1
-
-    ; initialise LED outputs
+	; initialise LED outputs
     ser temp1
     out ddrc, temp1
     out ddrg, temp1
 
-    ; initialise speed register
-	ldi speed, 1							; set init speed as 1
+	clr r26
+	clr r27
+	clr r28
+	clr r29
+    clr speed
+    clr temp1
+    clr temp2
+    clr temp3
+    clr iH
+    clr IL
 
-    ; initialise flying state
-    ;   0: Flight
-    ;   1: Hover 
-    ldi temp1, 0x00
-	mov hfState, temp1
-    rjmp main
+	sei ; Enable Global Interrupts
 
-; ////////// THIS SECTION NEEDS TO BE MOVED INTO THE MAIN LOOP ////////
+	jmp main
+
+Timer0OVF:							; interrupt subroutine for Timer0
+	push temp1
+	in temp1, SREG ; save SREG
+	push temp1
+	push temp2
+	push temp3
+	adiw r27:r26, 1					; Increase the temporary counter by one.
+	cpi r26, low(1000)				; Check if (r25:r24)=244, overflows at 250ms
+    brne end_timer_rjmp
+	cpi r27, high(1000)				
+	brne end_timer_rjmp
+	inc counter_speed
+	mov temp1, counter_speed
+	cpi temp1, 100
+	breq handle_speed_rjmp
+	clr r26
+	clr r27
+	rjmp handle_display
+	end_timer_rjmp:
+		rjmp end_timer
+	handle_speed_rjmp:
+		rjmp handle_speed
+	handle_display:
+	do_lcd_command (0x80 | 0x00)
+	rcall load_map
+	do_lcd_command (0x80 | 0x40)
+	do_lcd_data_reg hfState
+	do_lcd_command (0x80 | 0x44)
+	do_lcd_data '('
+	ldi temp1, '0'
+	add temp1, pos_x
+	do_lcd_data_reg temp1
+	do_lcd_data ','
+	ldi temp1, '0'
+	add temp1, pos_y
+	do_lcd_data_reg temp1
+	do_lcd_data ','
+	ldi temp1, '0'
+	add temp1, pos_z
+	do_lcd_data_reg temp1
+	do_lcd_data ')'
+	do_lcd_command (0x80 | 0x4D)
+	do_lcd_data_reg flightdirection
+	do_lcd_data '/'
+	subi speed, -'0'
+	do_lcd_data_reg speed
+	subi speed, '0'
+	rcall display_cursor
+end_timer:
+	pop temp3
+	pop temp2
+	pop temp1 ; restore SREG
+	out SREG, temp1
+	pop temp1
+	reti							; Return from the interrupt.
+
+handle_speed:
+	clr r26
+	clr r27
+	clr counter_speed
+	mov temp1, flightDirection
+	mov temp2, hfState
+
+	cpi temp2, HOVER
+	breq handle_hover_speed
+	rjmp handle_flight_speed
+
+handle_hover_speed:
+	mov temp2, pos_z
+	cpi temp1, UP
+	breq go_up
+go_down:
+	cp temp2, speed
+	brlo lowest
+	sub temp2, speed
+	rjmp exit_hover
+lowest:
+	ldi temp2, 2
+	rjmp exit_hover
+go_up:
+	add temp2, speed
+	cpi temp2, 10
+	brlo exit_hover
+	ldi temp2, 9
+exit_hover:
+	mov pos_z, temp2
+	rjmp end_timer							; Return from the interrupt.
+
+handle_flight_speed:
+	mov temp2, pos_x
+	mov temp3, pos_y
+	cpi temp1, NORTH
+	breq go_north
+	cpi temp1, SOUTH
+	breq go_south
+	cpi temp1, WEST
+	breq go_west
+go_east:
+	add temp2, speed
+	cpi temp2, 16
+	brlo exit_flight_x
+	ldi temp2, 16
+	rjmp exit_flight_x
+go_north:
+	cp temp3, speed
+	brlo northest
+	sub temp3, speed
+	rjmp exit_flight_y
+northest:
+	ldi temp3, 0
+	rjmp exit_flight_y
+go_south:
+	add temp3, speed
+	cpi temp3, 16
+	brlo exit_flight_y
+	ldi temp3, 16
+	rjmp exit_flight_y
+go_west:
+	cp temp2, speed
+	brlo westest
+	sub temp2, speed
+	rjmp exit_flight_x
+westest:
+	ldi temp2, 0
+	rjmp exit_flight_x
+exit_flight_x:
+	mov pos_x, temp2
+	rjmp end_timer
+exit_flight_y:
+	mov pos_y, temp3
+	rjmp end_timer
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Keypad;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+to_check_buttons:
+	pop row
+	pop col
+	jmp check_buttons
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 keypad_main:
+	push col
+	push row
 	ldi cmask, INITCOLMASK		; initial column mask
 	clr	col						; initial column
 	clr row
 colloop:
 	cpi col, 4
-	breq keypad_main
+	breq to_check_buttons
 	sts	PORTL, CMASK			; set column to mask value (one column off)
 	ldi temp1, 0xFF             ; initialise delay of 256 operations
 delay:
@@ -303,26 +617,23 @@ convert:
 	inc temp1					; actual value = row * c + column + 1
 	ldi temp2, 48				; convert decimal to their ascii values, actual value + ascii shift (48)
 	add temp1, temp2		
-	jmp convert_end
+	rjmp convert_end
 letters:
 	ldi temp1, 65				; load Ascii value of 'A' 65
 	add temp1, row				; increment the character 'A' by the row value
-	jmp convert_end
+	rjmp convert_end
 symbols:
 	cpi col, 0					; check if we have a star
 	breq star
 	cpi col, 1					; or if we have zero
 	breq zero
 	ldi temp1, 35				; if not we have hash, load ascii value of hash (35)
-	jmp convert_end
+	rjmp convert_end
 star:
 	ldi temp1, 42				; set to ascii value of star (42)
-	jmp convert_end
+	rjmp convert_end
 zero:
 	ldi temp1, 48				; set to ascii value of '0' (48)
-	jmp convert_end
-
-
 convert_end:
 	cpi temp1, NORTH_KEY
 	breq handle_north
@@ -338,8 +649,7 @@ convert_end:
 	breq handle_down
 	cpi temp1, STATE_CHANGE_KEY
 	breq handle_state_change
-	rjmp keypad_main
-
+	rjmp to_check_buttons
 
 handle_north:
 	ldi temp1, NORTH						; load ascii value of "N"
@@ -367,24 +677,23 @@ handle_down:
     rjmp end_change
 handle_state_change:
 	mov temp1, hfState						; save the current state
-	ldi temp2, 0xFF
-	eor temp1, temp2
+	cpi temp1, FLIGHT
+	breq handle_flight
+handle_hover:
+	ldi temp1, FLIGHT
+	mov hfState, temp1
+	rjmp end_change
+handle_flight:
+	ldi temp1, HOVER 
 	mov hfState, temp1
 end_change:
 	clr row
     clr temp1
     clr temp2
 	wait
-    rjmp keypad_main
-;/////////////////////////////////////////////////////////////////////////////////////
+    jmp main
 
-main:
-	jmp keypad_main
-
-;
-; Send a command to the LCD (r16)
-;
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;LCD functions;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 lcd_command:                        ; send a command to LCD IR
 	out PORTF, r16
 	nop
@@ -397,7 +706,7 @@ lcd_command:                        ; send a command to LCD IR
 	nop
 	nop
 	ret
-
+ 
 lcd_data:                           ; send a data to LCD DR
 	out PORTF, r16                  ; output r16 to port F
 	lcd_set LCD_RS                  ; use macro lcd_set to set pin 7 of port A to 1
@@ -414,12 +723,12 @@ lcd_data:                           ; send a data to LCD DR
 	nop
 	lcd_clr LCD_RS                  ; use macro lcd_clr to clear pin 7 of port A to 0
 	ret
-
+ 
 lcd_wait:                            ; LCD busy wait
 	push r16                         ; push r16 into stack
-	clr r16                         ; clear r16
+	clr r16                          ; clear r16
 	out DDRF, r16                    ; set port F to output mode
-	out PORTF, r16                   ; output 0x00 in port F 
+	out PORTF, r16                   ; output 0x00 in port F
 	lcd_set LCD_RW
 lcd_wait_loop:
 	nop
@@ -433,7 +742,65 @@ lcd_wait_loop:
 	rjmp lcd_wait_loop               ; rjmp to lcd_wait_loop
 	lcd_clr LCD_RW                   ; use macro lcd_clr to clear pin 7 of port A to 0
 	ser r16                          ; set r16 to 0xFF
-	out DDRF, r16                   ; set port F to input mode
+	out DDRF, r16                    ; set port F to input mode
 	pop r16                          ; pop r16 from stack
 	ret
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+speed_inc:
+	cpi speed, 9							;if == 9m/s dont increase
+	breq debounce_delay_0
+	inc speed
+
+	rjmp debounce_delay_0
+
+speed_dec:
+	cpi speed, 0							;if == 0m/s dont decrease
+	breq debounce_delay_1
+	dec speed
+
+	rjmp debounce_delay_1
+
+; Check for debounce for interrupt 0
+debounce_delay_0:
+	rcall sleep_5ms
+	sbic PIND, 0		; Skip if pin is 0 (Still pressed)
+	rjmp dec_count_0
+	inc temp1				; Increment the delay count because button still pressed
+	rjmp check_count_0
+dec_count_0:
+    dec temp1				; Decrement the delay count
+check_count_0:
+	cpi temp1, 0
+    breq main
+	cpi temp1, 40
+	breq main
+	rjmp debounce_delay_0
+
+; Check for debounce for interrupt 1
+debounce_delay_1:
+	rcall sleep_5ms
+	sbic PIND, 1			; Skip if pin is 0 (Still pressed)
+	rjmp dec_count_0
+	inc temp1				; Increment the delay count because button still pressed
+	rjmp check_count_1
+dec_count_1:
+    dec temp1				; Decrement the delay count
+check_count_1:
+	cpi temp1, 0
+    breq main
+	cpi temp1, 40
+	breq main
+	rjmp debounce_delay_1
+
+main:
+	jmp keypad_main
+
+check_buttons:
+	sbis pind, 0							; if pb0 pressed run inc speed
+	rjmp speed_inc
+
+	sbis pind, 1							; if pb1 pressed run desc speed
+	rjmp speed_dec
+
+	rjmp main
