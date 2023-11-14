@@ -8,10 +8,11 @@
 .def pos_y = r6				; register for y position
 .def pos_z = r7				; register for z position
 .def counter_speed = r8		; register for updating speed information
-.def func_return = r9       ; stores the result of a func_return
-.def acci_loc_x = r10       ; stores the accident location x coordinate
-.def acci_loc_y = r11       ; stores the accident location y coordinate
-.def acci_loc_z = r12       ; stores the accident location z coordinate
+.def func_return = r9
+.def func_return2 = r10
+.def acci_loc_x = r11
+.def acci_loc_y = r12
+.def acci_loc_z = r13
 .def speed = r20            ; permanent register for speed
 .def temp1 = r21            ; working register 1
 .def temp2 = r22            ; working register 2
@@ -19,8 +20,18 @@
 .def iL = r24
 .def iH = r25
 
-.equ LED_PATTERN_1 = 0b10101010
-.equ LED_PATTERN_2 = 0b01010101
+; //////////////////////////////////////////////////////////
+
+
+/* 
+/////////////////////////// LED ////////////////////////////
+
+PATTERN_1 and PATTERN_2 are the LED patterns to be displayed.
+
+////////////////////////////////////////////////////////////
+*/
+.equ PATTERN_1 = 0b10101010
+.equ PATTERN_2 = 0b01010101
 
 /* 
 ////////////////////////// KEYPAD //////////////////////////
@@ -136,7 +147,6 @@ matrix_addr:
 .macro lcd_clr
 	cbi PORTA, @0                   ; clear pin @0 of port A to 0
 .endmacro
-
 .macro wait
 	ser temp1
 wait_loop:
@@ -215,12 +225,12 @@ end_flash_loop:
 */
 flash_led:
 	push temp1
-	ldi temp1, LED_PATTERN_1
+	ldi temp1, PATTERN_1
 	out portc, temp1
 	ldi temp1, 2
 	out portg, temp1
 	wait
-	ldi temp1, LED_PATTERN_2
+	ldi temp1, PATTERN_2
 	out portc, temp1
 	ldi temp1, 1
 	out portg, temp1
@@ -424,11 +434,8 @@ RESET:
     clr iH
     clr IL
 	clr func_return
-    clr acci_loc_x
-    clr acci_loc_y
-    clr acci_loc_z
 
-	cli ; maybe disable until the acci_loc loop finishes then enable?
+	cli
 	;sei ; Enable Global Interrupts
 
 	jmp main
@@ -574,9 +581,9 @@ exit_flight_y:
 
 ; calls keypad_main which stores a value in func_return (r9)
 .macro get_input
-    push temp1
+	push temp1
     rcall keypad_main
-    pop temp1
+	pop temp1
 .endmacro
 
 keypad_main:
@@ -655,16 +662,16 @@ return_from_keypad:
 	cpi col, 4					; if we've reached the end, then no input was provided
 	breq return_empty_val
     mov func_return, temp1
-	pop temp1
 	pop temp2
+	pop temp1
     pop row
     pop col
     ret
 	return_empty_val:
 	clr temp1
 	mov func_return, temp1
-	pop temp1
 	pop temp2
+	pop temp1
     pop row
     pop col
 	ret
@@ -835,25 +842,88 @@ check_count_1:
 	breq return_from_keypad_rjmp
 	rjmp debounce_delay_1
 
-main:
-	ldi temp1, 0
-	; get position of accident
+
+.macro init_accident_location
+	push xl
+	clr xl
+	clr func_return2
+	do_lcd_data 'a'
+	do_lcd_data 'c'
+	do_lcd_data 'c'
+	do_lcd_data 'i'
+	do_lcd_data ':'
+	do_lcd_data ' '
 	acci_loc_loop:
-		cpi temp1, 3
-		brsh end_acci_loc_loop
-		get_input
-		tst func_return
-		breq acci_loc_loop
-		mov temp2, func_return
-		cpi temp2, '0'
-		brlo acci_loc_loop
-		cpi temp2, ':'
-		brge acci_loc_loop
-		do_lcd_data_reg func_return
-		clr func_return
+		cpi xl, 3
+		breq end_acci_loc_loop
+		rcall handle_accident_input
+		cpi xl, 2
+		breq skip_comma
+		do_lcd_data ','
+		skip_comma:
+		clr func_return2
+		inc xl
 		wait
 		rjmp acci_loc_loop
 	end_acci_loc_loop:
+	wait
+	wait
+	wait
+	wait
+	do_lcd_command 0x01
+	wait
+	wait
+	pop xl
 	sei
+.endmacro
+
+main:
+	init_accident_location
 	running_loop:
 		rjmp running_loop
+
+handle_accident_input:
+	push temp2
+	push temp3
+	clr temp2
+acci_input_loop:
+	wait
+	get_input
+	tst func_return
+	breq acci_input_loop
+	mov temp3, func_return
+	cpi temp2, 1
+	brlo accident_first_digit
+	breq accident_second_digit
+accident_first_digit:
+	cpi temp3, '2'
+	brsh invalid_acci_input
+	cpi temp3, '0'
+	brlo invalid_acci_input
+	inc temp2
+	do_lcd_data_reg temp3
+	cpi temp3, '1'
+	brlo skip_tens
+	ldi temp3, 10
+	add func_return2, temp3
+	skip_tens:
+	rjmp acci_input_loop
+	; assume that we will never get a number greater than 15 i.e., no one will ever type 16..19
+accident_second_digit:
+	cpi temp3, '0'
+	brlo invalid_acci_input
+	cpi temp3, ':'
+	brsh invalid_acci_input
+	inc temp2
+	do_lcd_data_reg temp3
+	subi temp3, '0'
+	add func_return2, temp3
+	rjmp handle_accident_input_end
+invalid_acci_input:
+	flash_n_times 1
+	rjmp acci_input_loop
+handle_accident_input_end:
+	pop temp3
+	pop temp2
+	clr func_return
+	ret
