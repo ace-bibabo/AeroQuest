@@ -8,6 +8,10 @@
 .def pos_y = r6				; register for y position
 .def pos_z = r7				; register for z position
 .def counter_speed = r8		; register for updating speed information
+.def func_return = r9       ; stores the result of a func_return
+.def acci_loc_x = r10       ; stores the accident location x coordinate
+.def acci_loc_y = r11       ; stores the accident location y coordinate
+.def acci_loc_z = r12       ; stores the accident location z coordinate
 .def speed = r20            ; permanent register for speed
 .def temp1 = r21            ; working register 1
 .def temp2 = r22            ; working register 2
@@ -15,18 +19,8 @@
 .def iL = r24
 .def iH = r25
 
-; //////////////////////////////////////////////////////////
-
-
-/* 
-/////////////////////////// LED ////////////////////////////
-
-PATTERN_1 and PATTERN_2 are the LED patterns to be displayed.
-
-////////////////////////////////////////////////////////////
-*/
-.equ PATTERN_1 = 0b10101010
-.equ PATTERN_2 = 0b01010101
+.equ LED_PATTERN_1 = 0b10101010
+.equ LED_PATTERN_2 = 0b01010101
 
 /* 
 ////////////////////////// KEYPAD //////////////////////////
@@ -142,6 +136,7 @@ matrix_addr:
 .macro lcd_clr
 	cbi PORTA, @0                   ; clear pin @0 of port A to 0
 .endmacro
+
 .macro wait
 	ser temp1
 wait_loop:
@@ -153,8 +148,8 @@ wait_loop:
 wait_end:
 	nop
 .endmacro
-.macro display
-	; output led
+
+.macro led_display
 	ser temp1
 	out ddrc, temp1 ;
 	out portc, @0
@@ -164,27 +159,27 @@ end_display:
 .endmacro
 
 .macro do_lcd_command           ; transfer command to LCD
-    push r16
+
 	ldi r16, @0                
 	rcall lcd_command           
 	rcall lcd_wait              
-    pop r16
+
 .endmacro
 
 .macro do_lcd_command_reg           ; transfer command to LCD
-    push r16
+
 	mov r16, @0                
 	rcall lcd_command           
 	rcall lcd_wait              
-    pop r16
+ 
 .endmacro
  
 .macro do_lcd_data				; transfer data to LCD
-    push r16
+
 	ldi r16, @0                 
 	rcall lcd_data              
 	rcall lcd_wait              
-    pop r16
+
 .endmacro
  
 .macro do_lcd_data_reg			; transfer data to LCD
@@ -211,7 +206,7 @@ flash_loop:
 end_flash_loop:
     pop temp1
 	cbi portg, 0
-	display speed
+	led_display speed
 .endmacro
 
 /* 
@@ -220,12 +215,12 @@ end_flash_loop:
 */
 flash_led:
 	push temp1
-	ldi temp1, PATTERN_1
+	ldi temp1, LED_PATTERN_1
 	out portc, temp1
 	ldi temp1, 2
 	out portg, temp1
 	wait
-	ldi temp1, PATTERN_2
+	ldi temp1, LED_PATTERN_2
 	out portc, temp1
 	ldi temp1, 1
 	out portg, temp1
@@ -428,8 +423,13 @@ RESET:
     clr temp3
     clr iH
     clr IL
+	clr func_return
+    clr acci_loc_x
+    clr acci_loc_y
+    clr acci_loc_z
 
-	sei ; Enable Global Interrupts
+	cli ; maybe disable until the acci_loc loop finishes then enable?
+	;sei ; Enable Global Interrupts
 
 	jmp main
 
@@ -440,7 +440,7 @@ Timer0OVF:							; interrupt subroutine for Timer0
 	push temp2
 	push temp3
 	adiw r27:r26, 1					; Increase the temporary counter by one.
-	cpi r26, low(1000)				; Check if (r25:r24)=244, overflows at 250ms
+	cpi r26, low(1000)				; Check if (r25:r24)=244, overflows at 1000ms
     brne end_timer_rjmp
 	cpi r27, high(1000)				
 	brne end_timer_rjmp
@@ -565,21 +565,38 @@ exit_flight_y:
 	mov pos_y, temp3
 	rjmp end_timer
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Keypad;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-to_check_buttons:
-	pop row
-	pop col
-	jmp check_buttons
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Keypad;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;o_check_buttons:
+;	pop row
+;	pop col
+;	jmp check_buttons
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; calls keypad_main which stores a value in func_return (r9)
+.macro get_input
+    push temp1
+    rcall keypad_main
+    pop temp1
+.endmacro
+
 keypad_main:
 	push col
 	push row
+	push temp1
+    push temp2
+	clr temp1
 	ldi cmask, INITCOLMASK		; initial column mask
 	clr	col						; initial column
 	clr row
 colloop:
 	cpi col, 4
-	breq to_check_buttons
+	breq return_from_keypad
+
+	sbis pind, 0							; if pb0 pressed run inc speed
+	rjmp speed_inc
+	sbis pind, 1							; if pb1 pressed run desc speed
+	rjmp speed_dec
+
 	sts	PORTL, CMASK			; set column to mask value (one column off)
 	ldi temp1, 0xFF             ; initialise delay of 256 operations
 delay:
@@ -617,23 +634,41 @@ convert:
 	inc temp1					; actual value = row * c + column + 1
 	ldi temp2, 48				; convert decimal to their ascii values, actual value + ascii shift (48)
 	add temp1, temp2		
-	rjmp convert_end
+    rjmp return_from_keypad
 letters:
 	ldi temp1, 65				; load Ascii value of 'A' 65
 	add temp1, row				; increment the character 'A' by the row value
-	rjmp convert_end
+    rjmp return_from_keypad
 symbols:
 	cpi col, 0					; check if we have a star
 	breq star
 	cpi col, 1					; or if we have zero
 	breq zero
 	ldi temp1, 35				; if not we have hash, load ascii value of hash (35)
-	rjmp convert_end
+    rjmp return_from_keypad
 star:
 	ldi temp1, 42				; set to ascii value of star (42)
-	rjmp convert_end
+    rjmp return_from_keypad
 zero:
 	ldi temp1, 48				; set to ascii value of '0' (48)
+return_from_keypad:
+	cpi col, 4					; if we've reached the end, then no input was provided
+	breq return_empty_val
+    mov func_return, temp1
+	pop temp1
+	pop temp2
+    pop row
+    pop col
+    ret
+	return_empty_val:
+	clr temp1
+	mov func_return, temp1
+	pop temp1
+	pop temp2
+    pop row
+    pop col
+	ret
+/*
 convert_end:
 	cpi temp1, NORTH_KEY
 	breq handle_north
@@ -649,7 +684,6 @@ convert_end:
 	breq handle_down
 	cpi temp1, STATE_CHANGE_KEY
 	breq handle_state_change
-	rjmp to_check_buttons
 
 handle_north:
 	ldi temp1, NORTH						; load ascii value of "N"
@@ -691,8 +725,8 @@ end_change:
     clr temp1
     clr temp2
 	wait
-    jmp main
-
+    ret
+*/
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;LCD functions;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 lcd_command:                        ; send a command to LCD IR
 	out PORTF, r16
@@ -746,19 +780,27 @@ lcd_wait_loop:
 	pop r16                          ; pop r16 from stack
 	ret
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+return_from_keypad_rjmp:
+	rjmp return_from_keypad
 
 speed_inc:
+	ldi col, 4						; allows the branching in return_from_keypad
+	ldi temp1, '-'
+	cp hfState, temp1
+	breq return_from_keypad_rjmp
 	cpi speed, 9							;if == 9m/s dont increase
 	breq debounce_delay_0
 	inc speed
-
 	rjmp debounce_delay_0
 
 speed_dec:
+	ldi col, 4						; allows the branching in return_from_keypad
+	ldi temp1, '-'
+	cp hfState, temp1					; '-' state means the simulation has not started
+	breq return_from_keypad_rjmp
 	cpi speed, 0							;if == 0m/s dont decrease
 	breq debounce_delay_1
 	dec speed
-
 	rjmp debounce_delay_1
 
 ; Check for debounce for interrupt 0
@@ -772,9 +814,9 @@ dec_count_0:
     dec temp1				; Decrement the delay count
 check_count_0:
 	cpi temp1, 0
-    breq main
+    breq return_from_keypad_rjmp
 	cpi temp1, 40
-	breq main
+	breq return_from_keypad_rjmp
 	rjmp debounce_delay_0
 
 ; Check for debounce for interrupt 1
@@ -788,19 +830,30 @@ dec_count_1:
     dec temp1				; Decrement the delay count
 check_count_1:
 	cpi temp1, 0
-    breq main
+    breq return_from_keypad_rjmp
 	cpi temp1, 40
-	breq main
+	breq return_from_keypad_rjmp
 	rjmp debounce_delay_1
 
 main:
-	jmp keypad_main
-
-check_buttons:
-	sbis pind, 0							; if pb0 pressed run inc speed
-	rjmp speed_inc
-
-	sbis pind, 1							; if pb1 pressed run desc speed
-	rjmp speed_dec
-
-	rjmp main
+	ldi temp1, 0
+	; get position of accident
+	acci_loc_loop:
+		cpi temp1, 3
+		brsh end_acci_loc_loop
+		get_input
+		tst func_return
+		breq acci_loc_loop
+		mov temp2, func_return
+		cpi temp2, '0'
+		brlo acci_loc_loop
+		cpi temp2, ':'
+		brge acci_loc_loop
+		do_lcd_data_reg func_return
+		clr func_return
+		wait
+		rjmp acci_loc_loop
+	end_acci_loc_loop:
+	sei
+	running_loop:
+		rjmp running_loop
