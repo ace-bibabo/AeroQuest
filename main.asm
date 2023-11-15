@@ -8,11 +8,12 @@
 .def pos_y = r6				; register for y position
 .def pos_z = r7				; register for z position
 .def counter_speed = r8		; register for updating speed information
-.def func_return = r9
+.def func_return = r9       ; stores the result of a func_return
 .def func_return2 = r10
 .def acci_loc_x = r11
 .def acci_loc_y = r12
 .def acci_loc_z = r13
+.def visibility = r14
 .def speed = r20            ; permanent register for speed
 .def temp1 = r21            ; working register 1
 .def temp2 = r22            ; working register 2
@@ -124,14 +125,14 @@ jmp RESET
 ; Define a 5x5 matrix with all elements initialized to 1
 .org 0x50
 matrix_addr:
-.db 0, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 7, 6, 7, 8
-.db 9, 8, 7, 6, 5, 4, 2, 2, 3, 4, 5, 6, 4, 3, 2
-.db 2, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 5, 6, 7
-.db 8, 7, 6, 5, 4, 3, 2, 3, 4, 5, 6, 7, 5, 4, 3
-.db 3, 4, 5, 6, 7, 8, 7, 8, 5, 4, 3, 2, 4, 5, 6
-.db 7, 8, 5, 4, 3, 2, 3, 4, 5, 6, 7, 8, 5, 6, 7
 .db 2, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 7, 6, 7, 8
-.db 9, 8, 7, 6, 5, 4, 2, 2, 3, 4, 5, 6, 4, 3, 2
+.db 3, 8, 7, 6, 5, 4, 2, 2, 3, 4, 5, 6, 4, 3, 2
+.db 4, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 5, 6, 7
+.db 5, 7, 6, 5, 4, 3, 2, 3, 4, 5, 6, 7, 5, 4, 3
+.db 6, 4, 5, 6, 7, 8, 7, 8, 5, 4, 3, 2, 4, 5, 6
+.db 2, 8, 5, 4, 3, 2, 3, 4, 5, 6, 7, 8, 5, 6, 7
+.db 2, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 7, 6, 7, 8
+.db 2, 8, 7, 6, 5, 4, 2, 2, 3, 4, 5, 6, 4, 3, 2
 .db 2, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 5, 6, 7
 .db 8, 7, 6, 5, 4, 3, 2, 3, 4, 5, 6, 7, 5, 4, 3
 .db 3, 4, 5, 6, 7, 8, 7, 8, 5, 4, 3, 2, 4, 5, 6
@@ -147,7 +148,9 @@ matrix_addr:
 .macro lcd_clr
 	cbi PORTA, @0                   ; clear pin @0 of port A to 0
 .endmacro
+
 .macro wait
+	push temp1
 	ser temp1
 wait_loop:
 	dec temp1
@@ -157,15 +160,19 @@ wait_loop:
 	rjmp wait_loop
 wait_end:
 	nop
+	pop temp1
 .endmacro
 
 .macro led_display
+	push temp1
+	ser temp1
 	ser temp1
 	out ddrc, temp1 ;
 	out portc, @0
 	wait
 end_display:
 	nop	
+	pop temp1
 .endmacro
 
 .macro do_lcd_command           ; transfer command to LCD
@@ -200,6 +207,34 @@ end_display:
     pop r16
 .endmacro
 
+.macro check_location
+	cp @0, acci_loc_x
+	brne jmp_end_location
+	cp @1, acci_loc_y
+	brne jmp_end_location
+	cp @2, acci_loc_z
+	brne jmp_end_location
+	rjmp found_display
+jmp_end_location:
+	jmp end_check_location
+found_display:
+	do_lcd_command 0x01
+	do_lcd_command (0x80 | 0x40)
+	do_lcd_data 'R'
+	do_lcd_command (0x80 | 0x44)
+	do_lcd_data '('
+	send_digits_to_lcd @0
+	do_lcd_data ','
+	send_digits_to_lcd @1
+	do_lcd_data ','
+	send_digits_to_lcd @2
+	do_lcd_data ')'
+	wait
+	rjmp found_display
+end_check_location:
+	nop
+.endmacro
+
 /* 
     Flash Macro
     @0 - the number of times a flash should occur on the LED
@@ -217,6 +252,46 @@ end_flash_loop:
     pop temp1
 	cbi portg, 0
 	led_display speed
+.endmacro
+
+; @0 x-pos, @1 y-pos
+.macro z_from_x_y
+	push r16
+	push r17
+	push ZL
+	push ZH
+	ldi ZL, low(matrix_addr<<1)
+	ldi ZH, high(matrix_addr<<1)
+	clr r16
+	ldi r16, MAPSIZE + 1
+	mul @1, r16 ; Multiply row index by row width to get offset
+	add ZL, r0 ; Add the offset to the Z pointer
+	adc ZH, r1
+	clr r17
+	add ZL, @0 ; Calculate the offset for the column
+	adc ZH, r17
+	lpm func_return, Z
+	pop ZH
+	pop ZL
+	pop r17
+	pop r16
+.endmacro
+
+.macro divide_reg
+	push r18
+	push r19
+    ldi r18, 0        ; Initialize quotient to 0
+    ldi r19, 0        ; Clear counter
+divide_loop:
+    cp @0, @1
+    brlo end_divide   ; If numerator < denominator, branch to end
+    sub @0, @1      ; Subtract denominator from numerator
+    inc r18  
+    rjmp divide_loop  ; Repeat until numerator < denominator
+end_divide:
+	mov @0, r18
+    pop r19
+	pop r18
 .endmacro
 
 /* 
@@ -409,15 +484,19 @@ RESET:
 	sts	DDRL, temp1							; save temp1(00001111) to DDRL so that cols are outputs and rows are inputs
 
 	; Initialize variables
+	ldi temp1, 0
+	mov pos_x, temp1
+	mov pos_y, temp1
+	z_from_x_y pos_x, pos_y
+	mov pos_z, func_return
 	ldi speed, 0
-	mov pos_x, speed
-	mov pos_y, speed
-	mov pos_z, speed
-	ldi speed, 0
+	; Initialize visibility level
+	ldi temp1, 4
+	mov visibility, temp1
 	ldi temp1, '-'
 	mov hfState, temp1
 	mov flightDirection, temp1
-
+	
 	; initialise LED outputs
     ser temp1
     out ddrc, temp1
@@ -436,10 +515,26 @@ RESET:
 	clr func_return
 
 	cli
-	;sei ; Enable Global Interrupts
 
 	jmp main
 
+.macro send_digits_to_lcd
+	push temp1
+	push temp2
+	mov temp1, @0
+	cpi temp1, 10
+	brlo send_ones_to_lcd
+	brsh send_tens_to_lcd
+	send_tens_to_lcd:
+		do_lcd_data '1'
+		subi temp1, 10
+	send_ones_to_lcd:
+		subi temp1, -'0'
+		do_lcd_data_reg temp1
+	pop temp2
+	pop temp1
+.endmacro
+ 
 Timer0OVF:							; interrupt subroutine for Timer0
 	push temp1
 	in temp1, SREG ; save SREG
@@ -447,14 +542,19 @@ Timer0OVF:							; interrupt subroutine for Timer0
 	push temp2
 	push temp3
 	adiw r27:r26, 1					; Increase the temporary counter by one.
-	cpi r26, low(1000)				; Check if (r25:r24)=244, overflows at 1000ms
+	cpi r26, low(100)				; Check if (r25:r24)=244, overflows at 1000ms
     brne end_timer_rjmp
-	cpi r27, high(1000)				
+	cpi r27, high(100)				
 	brne end_timer_rjmp
 	inc counter_speed
 	mov temp1, counter_speed
-	cpi temp1, 100
-	breq handle_speed_rjmp
+	ldi temp2, 100
+	tst speed
+	breq after_speed_scale
+	divide_reg temp2, speed 
+	cp temp1, temp2
+	brsh handle_speed_rjmp
+after_speed_scale:
 	clr r26
 	clr r27
 	rjmp handle_display
@@ -469,17 +569,11 @@ Timer0OVF:							; interrupt subroutine for Timer0
 	do_lcd_data_reg hfState
 	do_lcd_command (0x80 | 0x44)
 	do_lcd_data '('
-	ldi temp1, '0'
-	add temp1, pos_x
-	do_lcd_data_reg temp1
+	send_digits_to_lcd pos_x
 	do_lcd_data ','
-	ldi temp1, '0'
-	add temp1, pos_y
-	do_lcd_data_reg temp1
+	send_digits_to_lcd pos_y
 	do_lcd_data ','
-	ldi temp1, '0'
-	add temp1, pos_z
-	do_lcd_data_reg temp1
+	send_digits_to_lcd pos_z
 	do_lcd_data ')'
 	do_lcd_command (0x80 | 0x4D)
 	do_lcd_data_reg flightdirection
@@ -512,25 +606,28 @@ handle_hover_speed:
 	cpi temp1, UP
 	breq go_up
 go_down:
-	cp temp2, speed
-	brlo lowest
-	sub temp2, speed
+	z_from_x_y pos_x, pos_y
+	cp func_return, temp2
+	brsh lowest
+	dec temp2
 	rjmp exit_hover
 lowest:
-	ldi temp2, 2
+	mov temp2, func_return
 	rjmp exit_hover
 go_up:
-	add temp2, speed
+	inc temp2
 	cpi temp2, 10
 	brlo exit_hover
 	ldi temp2, 9
 exit_hover:
 	mov pos_z, temp2
-	rjmp end_timer							; Return from the interrupt.
+	jmp search_accident_loc
 
 handle_flight_speed:
 	mov temp2, pos_x
 	mov temp3, pos_y
+	cpi speed, 0
+	breq end_timer
 	cpi temp1, NORTH
 	breq go_north
 	cpi temp1, SOUTH
@@ -538,39 +635,190 @@ handle_flight_speed:
 	cpi temp1, WEST
 	breq go_west
 go_east:
-	add temp2, speed
-	cpi temp2, 16
+	inc temp2
+	cpi temp2, 14
 	brlo exit_flight_x
-	ldi temp2, 16
+	ldi temp2, 14
 	rjmp exit_flight_x
 go_north:
-	cp temp3, speed
+	cpi temp3, 1
 	brlo northest
-	sub temp3, speed
+	dec temp3
 	rjmp exit_flight_y
 northest:
 	ldi temp3, 0
 	rjmp exit_flight_y
 go_south:
-	add temp3, speed
-	cpi temp3, 16
+	inc temp3
+	cpi temp3, 14
 	brlo exit_flight_y
-	ldi temp3, 16
+	ldi temp3, 14
 	rjmp exit_flight_y
 go_west:
-	cp temp2, speed
+	cpi temp2, 1
 	brlo westest
-	sub temp2, speed
+	dec temp2
 	rjmp exit_flight_x
 westest:
 	ldi temp2, 0
 	rjmp exit_flight_x
 exit_flight_x:
 	mov pos_x, temp2
-	rjmp end_timer
+	rjmp crash_check
 exit_flight_y:
 	mov pos_y, temp3
-	rjmp end_timer
+	rjmp crash_check
+crash_check:
+	z_from_x_y pos_x, pos_y
+	cp pos_z, func_return
+	brlo auto_increase_z
+	rjmp end_crash_check
+auto_increase_z:
+	inc pos_z
+	cp pos_z, func_return
+	breq end_crash_check
+	rjmp crashed_display
+end_crash_check:
+	rjmp search_accident_loc
+crashed_display:
+	do_lcd_command 0x01
+	do_lcd_command (0x80 | 0x40)
+	do_lcd_data 'C'
+	do_lcd_command (0x80 | 0x44)
+	do_lcd_data '('
+	send_digits_to_lcd pos_x
+	do_lcd_data ','
+	send_digits_to_lcd pos_y
+	do_lcd_data ','
+	send_digits_to_lcd pos_z
+	do_lcd_data ')'
+crashed:
+	flash_n_times 2                                                     
+	rjmp crashed
+search_accident_loc:
+	mov temp1, flightDirection
+	mov temp3, visibility
+	dec temp3
+	cpi temp1, NORTH
+	breq jmp_search_north
+	cpi temp1, SOUTH
+	breq jmp_search_south
+	cpi temp1, WEST
+	breq jmp_search_west
+	cpi temp1, EAST
+	breq search_east
+	jmp search_east
+jmp_search_north:
+	jmp search_north
+jmp_search_south:
+	jmp search_south
+jmp_search_west:
+	jmp search_west
+not_visible_0:
+	jmp end_timer
+jmp_skipped_search_east:
+	jmp skipped_search_east
+search_east:
+	mov temp1, pos_x 
+search_east_loop:
+	tst temp3
+	breq not_visible_0
+	mov temp2, pos_z
+	z_from_x_y temp1, pos_y
+	cp temp2, func_return ; if there is a mountain between here and location, then it's not visible
+	brlo not_visible_0
+	sub temp2, func_return
+	cp temp3, temp2  ; if groud is too far, then it's not visible
+	brlo jmp_skipped_search_east 
+
+	check_location temp1, pos_y, func_return
+
+skipped_search_east:
+	cpi temp1, 0	; if at the edge of bound, then it's not visible
+	breq not_visible_1
+	inc temp1 ; move in current direction
+	dec temp3 ; decrease visibility
+	rjmp search_east_loop
+not_visible_1:
+	jmp end_timer
+
+jmp_skipped_search_west:
+	jmp skipped_search_west
+search_west:
+	mov temp1, pos_x 
+search_west_loop:
+	tst temp3
+	breq not_visible_1
+	mov temp2, pos_z
+	z_from_x_y temp1, pos_y
+	cp temp2, func_return ; if there is a mountain between here and location, then it's not visible
+	brlo not_visible_1
+	sub temp2, func_return
+	cp temp3, temp2  ; if groud is too far, then it's not visible
+	brlo jmp_skipped_search_west 
+
+	check_location temp1, pos_y, func_return
+
+skipped_search_west:
+	cpi temp1, 0	; if at the edge of bound, then it's not visible
+	breq not_visible_2
+	dec temp1 ; move in current direction
+	dec temp3 ; decrease visibility
+	rjmp search_west_loop
+not_visible_2:
+	jmp end_timer
+
+jmp_skipped_search_south:
+	jmp skipped_search_south
+search_south:
+	mov temp1, pos_y 
+search_south_loop:
+	tst temp3
+	breq not_visible_2
+	mov temp2, pos_z
+	z_from_x_y pos_x, temp1
+	cp temp2, func_return ; if there is a mountain between here and location, then it's not visible
+	brlo not_visible_2
+	sub temp2, func_return
+	cp temp3, temp2  ; if groud is too far, then it's not visible
+	brlo jmp_skipped_search_south 
+
+	check_location pos_x, temp1, func_return
+
+skipped_search_south:
+	cpi temp1, 14	; if at the edge of bound, then it's not visible
+	breq not_visible_3
+	inc temp1 ; move in current direction
+	dec temp3 ; decrease visibility
+	rjmp search_south_loop
+not_visible_3:
+	jmp end_timer
+
+jmp_skipped_search_north:
+	jmp skipped_search_north
+search_north:
+	mov temp1, pos_y 
+search_north_loop:
+	tst temp3
+	breq not_visible_3
+	mov temp2, pos_z
+	z_from_x_y pos_x, temp1
+	cp temp2, func_return ; if there is a mountain between here and location, then it's not visible
+	brlo not_visible_3
+	sub temp2, func_return
+	cp temp3, temp2  ; if groud is too far, then it's not visible
+	brlo jmp_skipped_search_north
+
+	check_location pos_x, temp1, func_return
+	
+skipped_search_north:
+	cpi temp1, 0	; if at the edge of bound, then it's not visible
+	breq not_visible_4
+	dec temp1 ; move in current direction
+	dec temp3 ; decrease visibility
+	rjmp search_north_loop
+not_visible_4:
+	jmp end_timer
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;Keypad;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;o_check_buttons:
@@ -581,9 +829,9 @@ exit_flight_y:
 
 ; calls keypad_main which stores a value in func_return (r9)
 .macro get_input
-	push temp1
+    push temp1
     rcall keypad_main
-	pop temp1
+    pop temp1
 .endmacro
 
 keypad_main:
@@ -598,11 +846,8 @@ keypad_main:
 colloop:
 	cpi col, 4
 	breq return_from_keypad
-
-	sbis pind, 0							; if pb0 pressed run inc speed
-	rjmp speed_inc
-	sbis pind, 1							; if pb1 pressed run desc speed
-	rjmp speed_dec
+	                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+	rcall handle_speed_change
 
 	sts	PORTL, CMASK			; set column to mask value (one column off)
 	ldi temp1, 0xFF             ; initialise delay of 256 operations
@@ -667,73 +912,89 @@ return_from_keypad:
     pop row
     pop col
     ret
-	return_empty_val:
+return_empty_val:
 	clr temp1
 	mov func_return, temp1
 	pop temp2
 	pop temp1
     pop row
     pop col
-	ret
-/*
-convert_end:
-	cpi temp1, NORTH_KEY
-	breq handle_north
-	cpi	temp1, WEST_KEY
-	breq handle_west
-	cpi temp1, EAST_KEY 
-	breq handle_east
-	cpi temp1, SOUTH_KEY
-	breq handle_south
-	cpi	temp1, UP_KEY
-	breq handle_up
-	cpi	temp1, DOWN_KEY 
-	breq handle_down
-	cpi temp1, STATE_CHANGE_KEY
-	breq handle_state_change
+	ret 
 
+.macro handle_input
+	push r16
+	mov r16, func_return
+    rcall handle_input_func
+	pop r16
+.endmacro
+
+handle_input_func:
+	push temp1
+	push temp2
+	mov temp2, hfState
+	cpi temp2, 'F'
+	breq go_state_change
+	cpi r16, NORTH_KEY
+	breq handle_north
+	cpi	r16, WEST_KEY
+	breq handle_west
+	cpi r16, EAST_KEY 
+	breq handle_east
+	cpi r16, SOUTH_KEY
+	breq handle_south
+	cpi	r16, UP_KEY
+	breq handle_up
+	cpi	r16, DOWN_KEY 
+	breq handle_down
+go_state_change:
+	cpi r16, STATE_CHANGE_KEY
+	breq handle_state_change
+	rjmp end_change
 handle_north:
 	ldi temp1, NORTH						; load ascii value of "N"
 	mov flightdirection, temp1				; set flight direction to north
-    rjmp end_change
+    rjmp end_change_cardinal
 handle_west:
 	ldi temp1, WEST							; load ascii value of "W"
 	mov flightdirection, temp1				; set flight direction to west
-    rjmp end_change
+    rjmp end_change_cardinal
 handle_east:
 	ldi temp1, EAST							; load ascii value of "E"
 	mov flightdirection, temp1				; set flight direction to east
-    rjmp end_change
+    rjmp end_change_cardinal
 handle_south:
 	ldi temp1, SOUTH						; load ascii value of "S"
 	mov flightdirection, temp1				; set flight direction to south
-    rjmp end_change
+    rjmp end_change_cardinal
 handle_up:
 	ldi temp1, UP						    ; load ascii value of "U"
 	mov flightdirection, temp1			    ; set flight direction to up
-    rjmp end_change
+    rjmp end_change_cardinal
 handle_down:
 	ldi temp1, DOWN						    ; load ascii value of "D"
 	mov flightdirection, temp1				; set flight direction to down
-    rjmp end_change
+    rjmp end_change_cardinal
 handle_state_change:
 	mov temp1, hfState						; save the current state
-	cpi temp1, FLIGHT
-	breq handle_flight
+	cpi temp1, HOVER
+	breq handle_hover
+handle_flight_or_null:
+	ldi temp1, HOVER
+	mov hfState, temp1
+	ldi speed, 0
+	rjmp end_change
 handle_hover:
 	ldi temp1, FLIGHT
 	mov hfState, temp1
-	rjmp end_change
-handle_flight:
-	ldi temp1, HOVER 
-	mov hfState, temp1
+	ldi speed, 0
+end_change_cardinal:
+	ldi speed, 0         
 end_change:
-	clr row
-    clr temp1
-    clr temp2
 	wait
+	pop temp2
+	pop temp1
     ret
-*/
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;LCD functions;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 lcd_command:                        ; send a command to LCD IR
 	out PORTF, r16
@@ -787,30 +1048,49 @@ lcd_wait_loop:
 	pop r16                          ; pop r16 from stack
 	ret
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-return_from_keypad_rjmp:
-	rjmp return_from_keypad
+return_from_speed_change:
+	pop temp2
+	pop temp1
+	ret
 
+handle_speed_change:
+	push temp1
+	push temp2
+	mov temp1, hfState
+	mov temp2, flightDirection
+	cpi temp1, '-'
+	breq return_from_speed_change
+	cpi temp1, 'H'
+	breq hover_speed_change
+flight_speed_change:
+	cpi temp2, 'U'  
+	breq return_from_speed_change
+	cpi temp2, 'D'
+	breq return_from_speed_change
+	rjmp continue_speed_change
+hover_speed_change:
+	cpi temp2, 'U'
+	breq continue_speed_change
+	cpi temp2, 'D'                                                           '
+	breq continue_speed_change
+	rjmp return_from_speed_change
+continue_speed_change:
+	sbis pind, 0							; if pb0 pressed run inc speed
+	rjmp speed_inc
+	sbis pind, 1							; if pb1 pressed run desc speed
+	rjmp speed_dec
+	rjmp return_from_speed_change
 speed_inc:
-	ldi col, 4						; allows the branching in return_from_keypad
-	ldi temp1, '-'
-	cp hfState, temp1
-	breq return_from_keypad_rjmp
 	cpi speed, 9							;if == 9m/s dont increase
-	breq debounce_delay_0
+	breq debounce_delay_0     
 	inc speed
 	rjmp debounce_delay_0
-
 speed_dec:
-	ldi col, 4						; allows the branching in return_from_keypad
-	ldi temp1, '-'
-	cp hfState, temp1					; '-' state means the simulation has not started
-	breq return_from_keypad_rjmp
 	cpi speed, 0							;if == 0m/s dont decrease
 	breq debounce_delay_1
 	dec speed
 	rjmp debounce_delay_1
-
-; Check for debounce for interrupt 0
+; Check for debounce for button 0
 debounce_delay_0:
 	rcall sleep_5ms
 	sbic PIND, 0		; Skip if pin is 0 (Still pressed)
@@ -821,12 +1101,11 @@ dec_count_0:
     dec temp1				; Decrement the delay count
 check_count_0:
 	cpi temp1, 0
-    breq return_from_keypad_rjmp
+    breq return_from_speed_change
 	cpi temp1, 40
-	breq return_from_keypad_rjmp
+	breq return_from_speed_change
 	rjmp debounce_delay_0
-
-; Check for debounce for interrupt 1
+; Check for debounce for button 1
 debounce_delay_1:
 	rcall sleep_5ms
 	sbic PIND, 1			; Skip if pin is 0 (Still pressed)
@@ -837,35 +1116,79 @@ dec_count_1:
     dec temp1				; Decrement the delay count
 check_count_1:
 	cpi temp1, 0
-    breq return_from_keypad_rjmp
+    breq return_from_speed_change
 	cpi temp1, 40
-	breq return_from_keypad_rjmp
+	breq return_from_speed_change
 	rjmp debounce_delay_1
-
-
+ 
 .macro init_accident_location
+	push temp1
+	push temp2
+	push temp3
 	push xl
+	push zl
 	clr xl
 	clr func_return2
+	clr acci_loc_y
+	clr acci_loc_x
+	clr acci_loc_z
 	do_lcd_data 'a'
 	do_lcd_data 'c'
 	do_lcd_data 'c'
 	do_lcd_data 'i'
 	do_lcd_data ':'
-	do_lcd_data ' '
-	acci_loc_loop:
-		cpi xl, 3
-		breq end_acci_loc_loop
-		rcall handle_accident_input
-		cpi xl, 2
-		breq skip_comma
-		do_lcd_data ','
-		skip_comma:
-		clr func_return2
-		inc xl
-		wait
-		rjmp acci_loc_loop
-	end_acci_loc_loop:
+	do_lcd_data '('
+	do_lcd_data 'x'
+	do_lcd_data ','
+	do_lcd_data 'y'
+	do_lcd_data ')'
+	do_lcd_data ':'
+acci_loc_loop:
+	cpi xl, 2
+	breq end_acci_loc_loop
+	call handle_accident_input
+	cpi xl, 1
+	breq skip_comma
+	do_lcd_data ','
+	skip_comma:
+	cpi xl, 1
+	brlo store_acci_x
+	breq store_acci_y
+store_acci_x:
+	add acci_loc_x, func_return2
+	rjmp reset_for_next_loop
+store_acci_y:
+	add acci_loc_y, func_return2
+reset_for_next_loop:
+	inc xl
+	clc
+	wait
+	clr func_return2
+	clr func_return
+	rjmp acci_loc_loop
+end_acci_loc_loop:
+	z_from_x_y acci_loc_x, acci_loc_y
+	mov acci_loc_z, func_return
+	;/////// DEBUG ////////
+	do_lcd_data 'a'
+	do_lcd_data 'c'
+	do_lcd_data 'c'
+	do_lcd_data 'i'
+	do_lcd_data ':'
+	mov temp1, acci_loc_x
+	mov temp2, acci_loc_y
+	mov temp3, acci_loc_z
+	subi temp1, -'0'
+	subi temp2, -'0'
+	subi temp3, -'0'
+ 
+	do_lcd_command 0x0
+	do_lcd_data_reg temp1
+	do_lcd_data ','
+	do_lcd_data_reg temp2
+	do_lcd_data ':'
+	do_lcd_data_reg temp3
+	;/////// DEBUG ////////
 	wait
 	wait
 	wait
@@ -874,22 +1197,25 @@ check_count_1:
 	wait
 	wait
 	pop xl
+	pop zl
+	pop temp3
+	pop temp2
+	pop temp1
 	sei
 .endmacro
-
-main:
-	init_accident_location
-	running_loop:
-		rjmp running_loop
-
+ 
 handle_accident_input:
+	push temp1
 	push temp2
 	push temp3
+	clr temp1
 	clr temp2
+	clr temp3
 acci_input_loop:
 	wait
 	get_input
-	tst func_return
+	mov temp3, func_return
+	cpi temp3, 0
 	breq acci_input_loop
 	mov temp3, func_return
 	cpi temp2, 1
@@ -910,8 +1236,6 @@ accident_first_digit:
 	rjmp acci_input_loop
 	; assume that we will never get a number greater than 15 i.e., no one will ever type 16..19
 accident_second_digit:
-	cpi temp3, '0'
-	brlo invalid_acci_input
 	cpi temp3, ':'
 	brsh invalid_acci_input
 	inc temp2
@@ -925,5 +1249,16 @@ invalid_acci_input:
 handle_accident_input_end:
 	pop temp3
 	pop temp2
+	pop temp1
 	clr func_return
 	ret
+
+main:
+	init_accident_location
+	sei
+	running_loop:
+		get_input
+		tst func_return   
+		breq running_loop
+		handle_input
+		rjmp running_loop
