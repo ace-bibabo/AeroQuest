@@ -122,11 +122,11 @@ jmp RESET
 .org OVF2addr
 	jmp Timer0OVF ; Timer overflow interrupt
 
-; Define a 15x15 matrix with all elements initialized to 1
+; Define a 5x5 matrix with all elements initialized to 1
 .org 0x50
 matrix_addr:
-.db 1, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 7, 6, 7, 8
-.db 2, 8, 7, 6, 5, 4, 2, 2, 3, 4, 5, 6, 4, 3, 2
+.db 2, 2, 3, 4, 5, 6, 2, 3, 4, 5, 6, 7, 6, 7, 8
+.db 3, 8, 7, 6, 5, 4, 2, 2, 3, 4, 5, 6, 4, 3, 2
 .db 4, 3, 4, 5, 6, 7, 8, 7, 6, 5, 4, 3, 5, 6, 7
 .db 5, 7, 6, 5, 4, 3, 2, 3, 4, 5, 6, 7, 5, 4, 3
 .db 6, 4, 5, 6, 7, 8, 7, 8, 5, 4, 3, 2, 4, 5, 6
@@ -606,7 +606,6 @@ handle_hover_speed:
 	cpi temp1, UP
 	breq go_up
 go_down:
-	; stops us from going below the current altitude
 	z_from_x_y pos_x, pos_y
 	cp func_return, temp2
 	brsh lowest
@@ -846,8 +845,10 @@ keypad_main:
 	clr row
 colloop:
 	cpi col, 4
-	breq return_from_keypad                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
+	breq return_from_keypad
+	                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
 	rcall handle_speed_change
+
 	sts	PORTL, CMASK			; set column to mask value (one column off)
 	ldi temp1, 0xFF             ; initialise delay of 256 operations
 delay:
@@ -1089,7 +1090,6 @@ speed_dec:
 	breq debounce_delay_1
 	dec speed
 	rjmp debounce_delay_1
-
 ; Check for debounce for button 0
 debounce_delay_0:
 	rcall sleep_5ms
@@ -1169,26 +1169,26 @@ reset_for_next_loop:
 end_acci_loc_loop:
 	z_from_x_y acci_loc_x, acci_loc_y
 	mov acci_loc_z, func_return
-	do_lcd_command 0x01
 	;/////// DEBUG ////////
 	do_lcd_data 'a'
 	do_lcd_data 'c'
 	do_lcd_data 'c'
 	do_lcd_data 'i'
 	do_lcd_data ':'
-	do_lcd_data '('
 	mov temp1, acci_loc_x
 	mov temp2, acci_loc_y
 	mov temp3, acci_loc_z
-	send_digits_to_lcd temp1
+	subi temp1, -'0'
+	subi temp2, -'0'
+	subi temp3, -'0'
+ 
+	do_lcd_command 0x0
+	do_lcd_data_reg temp1
 	do_lcd_data ','
-	send_digits_to_lcd temp2
-	do_lcd_data ','
-	send_digits_to_lcd temp3
-	do_lcd_data ')'
+	do_lcd_data_reg temp2
+	do_lcd_data ':'
+	do_lcd_data_reg temp3
 	;/////// DEBUG ////////
-	wait
-	wait
 	wait
 	wait
 	wait
