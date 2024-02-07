@@ -1,14 +1,14 @@
 # Hardware implementation of Drone simulation
 
 ## Intro
-This project is focusing on developing a drone simulation system using the provided lab board to replicate the intricacies of controlling a drone during a search operation in mountainous terrains. The program simulates the navigation of a drone over a 2D matrix representing a mountain landscape. The simulation provides real-time updates of the drone as it navigates the terrain such as the drone states, speed, altitude, position on the map and whether the drone has identified the crash location or crashed. Users define the accident location, introducing variability to the simulation.
+This project focuses on developing a drone simulation system using the provided lab board to replicate the intricacies of controlling a drone during a search operation in mountainous terrains. The program simulates the navigation of a drone over a 2D matrix representing a mountain landscape. The simulation provides real-time updates of the drone as it navigates the terrain such as the drone states, speed, altitude, position on the map and whether the drone has identified the crash location or crashed. Users define the accident location, introducing variability to the simulation.
 
 Input mechanisms include a reset button, push buttons for speed adjustment, a keypad for flight direction and state changes, and an LED bar indicating simulation status.
 ![](https://github.com/ace-lii/accident/blob/main/img/outline.png?raw=true)
 
 ## Design assumptions
-1.	We are always given valid inputs, where required. E.g., we will not be provided an accident location outside of the map
-2.	The drone automatically increases its altitude by 1 at each tick, unless a higher value is set whilst in hover mode during the prior one second interval.
+1.	We are always given valid inputs, where required. For, we will not be provided an accident location outside of the map
+2.	The drone automatically increases its altitude by 1 at each tick, unless a higher value is set whilst in hover mode during the prior one-second interval.
 3.	A crash event occurs when the difference between the drone’s altitude and the altitude at the current position is greater than 1.
 4.	Going up and down will not cause a crash
 5.	A drone will not move out of the grid. If a move like this is performed, it will remain at the border of the map.
@@ -20,34 +20,34 @@ Input mechanisms include a reset button, push buttons for speed adjustment, a ke
 
  ![](https://github.com/ace-lii/accident/blob/main/img/flow.png?raw=true)
 
-* Accident Input: The program starts with input of the x and y position for the accident. It will then automatically calculate the z position of the accident. 
+* Accident Input: The program starts with input of the x and y positions for the accident. It will then automatically calculate the z position of the accident. 
 
-* Main: Continuous looping of main until it polls for input or goes to timer interrupt every 1 microsecond.
+* Main: Continuous looping of main until it polls for input or goes to the timer interrupt every 1 microsecond.
 
-* Check Input: Loops through checking of input of button press and keyboard. If no input detected then return to main. If detected then handle the relevant input separately
+* Check Input: Loops through checking of input of button press and keyboard. If no input is detected then return to main. If detected then handle the relevant input separately
 
-* Handle Push Button: If push button is pressed, Check whether states should be changed according to the button pushed (Cannot change speed for N,S,E,W when in hover mode, speed cannot go over 9, etc.)
+* Handle Push Button: If the push button is pressed, Check whether states should be changed according to the button pushed (Cannot change speed for N, S, E, W when in hover mode, speed cannot go over 9, etc.)
 
-* Button Debounce: Poll the push button until the counter is either 0 or 40. 0 meaning no button is being pressed and 40 meaning button is still pressed.
+* Button Debounce: Poll the push button until the counter is either 0 or 40. 0 meaning no button is being pressed and 40 meaning the button is still pressed.
 
-* Keypad debounce: Delay keypad input after keypad entry for 256ms.
+* Keypad debounce Delay keypad input after keypad entry for 256ms.
 
-* Timer interrupt: OVF2 interrupt rate depends on the speed of the drone. The OVF1 condition refreshes the LCD around every 100ms and OVF2 condition is achieved every 10 times OVF1 condition is achieved when the drone is moving at a speed of 1m/s, which is around once every second. The number of times OVF1 is achieved before OVF2 is inversely proportional to the speed. For example at the speed of 2, OVF2 will be achieved every 5 times OVF1 is achieved, which is around 500ms. This means that the handle speed state only increments the position by at most once and it has the effect of changing the state faster when speed is faster, which makes the drone seem like it’s flying faster..
+* Timer interrupt: The OVF2 interrupt rate depends on the speed of the drone. The OVF1 condition refreshes the LCD around every 100ms and the OVF2 condition is achieved every 10 times OVF1 condition is achieved when the drone is moving at a speed of 1m/s, which is around once every second. The number of times OVF1 is achieved before OVF2 is inversely proportional to the speed. For example at the speed of 2, OVF2 will be achieved every 5 times OVF1 is achieved, which is around 500ms. This means that the handle speed state only increments the position by at most once and it has the effect of changing the state faster when speed is faster, which makes the drone seem like it’s flying faster..
 
-* Handle Speed: Handles how the speed and direction changes the position of the drone. Only increment or decrement by 1 as mentioned previously.
+* Handle Speed: Handles how the speed and direction change the position of the drone. Only increment or decrement by 1 as mentioned previously.
 
 * Crash Check: Check if the current altitude of the mountain is higher than the current position of the drone by 2. If only by one the drone automatically adjusts height. If not, the drone crashes.
 
-* Crashed: Return a display on LCD that shows the drone has crashed and the location of crash is displayed
+* Crashed: Return a display on LCD that shows the drone has crashed and the location of the crash is displayed
 
-* Search: Search in the direction where the drone is heading only. Loop through each position ahead of the drone in the direction that it is facing. If visibility reaches 0 then the accident is not found and go to the next state. If the current loop’s altitude of the map is higher than the drone then the accident is not found and go to the next state. If the drone's position is above the ground by more than the visibility level then go to the next loop (This prevents early exiting when there is a huge pit one step ahead of the drone but accident on the next location level with the drone which should still be visible). If the accident location is found then go to the state of return. Next loop starts with the next position in the direction the drone is facing with 1 less visibility level (Since we are using Manhattan’s distance).
+* Search: Search in the direction where the drone is heading only. Loop through each position ahead of the drone in the direction that it is facing. If visibility reaches 0 then the accident is not found and goes to the next state. If the current loop’s altitude of the map is higher than the drone then the accident is not found and goes to the next state. If the drone's position is above the ground by more than the visibility level then go to the next loop (This prevents early exiting when there is a huge pit one step ahead of the drone but accident on the next location level with the drone which should still be visible). If the accident location is found then go to the state of return. The next loop starts with the next position in the direction the drone is facing with 1 lower visibility level (Since we are using Manhattan’s distance).
 
 * Return: Return a display on LCD that shows the drone has returned and the location of the accident is displayed.
 
-* Load state on LCD: Displays the states of the drone: the map in the direction the drone is facing, a cursor underneath the drone’s current position on the map, the state of the drone, the x,y,z coordinate of the drone, and the speed of the drone.
+* Load state on LCD: Displays the states of the drone: the map in the direction the drone is facing, a cursor underneath the drone’s current position on the map, the state of the drone, the x,y, and z coordinate of the drone, and the speed of the drone.
 
 ## Components
-###Registers
+### Registers
 
 | Name           | Register | Description                                                 |
 |----------------|----------|-------------------------------------------------------------|
