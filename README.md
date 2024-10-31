@@ -1,13 +1,13 @@
 # Hardware implementation of Drone simulation
 
 ## Intro
-This project focuses on developing a drone simulation system using the provided lab board to replicate the intricacies of controlling a drone during a search operation in mountainous terrains. The program simulates the navigation of a drone over a 2D matrix representing a mountain landscape. The simulation provides real-time updates of the drone as it navigates the terrain such as the drone states, speed, altitude, position on the map and whether the drone has identified the crash location or crashed. Users define the accident location, introducing variability to the simulation.
+focuses on developing a drone simulation system using the provided lab board to replicate the intricacies of controlling a drone during a search operation in mountainous terrains. The program simulates the navigation of a drone over a 2D matrix representing a mountain landscape. The simulation provides real-time updates of the drone as it navigates the terrain such as the drone states, speed, altitude, position on the map and whether the drone has identified the crash location or crashed. Users define the accident location, introducing variability to the simulation.
 
 Input mechanisms include a reset button, push buttons for speed adjustment, a keypad for flight direction and state changes, and an LED bar indicating simulation status.
 ![](https://github.com/ace-lii/accident/blob/main/img/outline.png?raw=true)
 
 ## Design assumptions
-1.	We are always given valid inputs, where required. For, we will not be provided an accident location outside of the map
+1. given valid inputs, where required. For, we will not be provided an accident location outside of the map
 2.	The drone automatically increases its altitude by 1 at each tick, unless a higher value is set whilst in hover mode during the prior one-second interval.
 3.	A crash event occurs when the difference between the drone’s altitude and the altitude at the current position is greater than 1.
 4.	Going up and down will not cause a crash
