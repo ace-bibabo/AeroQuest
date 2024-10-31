@@ -1,7 +1,7 @@
-# Hardware implementation of Drone simulation
+# AeroQuest
 
 ## Intro
-focuses on developing a drone simulation system using the provided lab board to replicate the intricacies of controlling a drone during a search operation in mountainous terrains. The program simulates the navigation of a drone over a 2D matrix representing a mountain landscape. The simulation provides real-time updates of the drone as it navigates the terrain such as the drone states, speed, altitude, position on the map and whether the drone has identified the crash location or crashed. Users define the accident location, introducing variability to the simulation.
+Developed a drone simulation system using the provided ARM based board to replicate the intricacies of controlling a drone during a search operation in mountainous terrains. The program simulates the navigation of a drone over a 2D matrix representing a mountain landscape. The simulation provides real-time updates of the drone as it navigates the terrain such as the drone states, speed, altitude, position on the map and whether the drone has identified the crash location or crashed. Users define the accident location, introducing variability to the simulation.
 
 Input mechanisms include a reset button, push buttons for speed adjustment, a keypad for flight direction and state changes, and an LED bar indicating simulation status.
 ![](https://github.com/ace-lii/accident/blob/main/img/outline.png?raw=true)
